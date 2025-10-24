@@ -1,3 +1,21 @@
+import os
+print("=== Available files ===")
+for f in os.listdir('.'):
+    if os.path.isfile(f):
+        size_mb = os.path.getsize(f) / (1024*1024)
+        print(f"- {f}: {size_mb:.1f}MB")
+    else:
+        print(f"- {f}: directory")
+
+models_needed = ["model_xgb.pkl", "model_lgb.pkl", "model_cat.pkl", "model_et.pkl", "model_rf.pkl", "meta.pkl"]
+missing = [m for m in models_needed if not os.path.exists(m)]
+if missing:
+    st.error(f"Missing model files: {missing}")
+    st.stop()
+else:
+    st.success("All models found")
+
+
 import streamlit as st
 import numpy as np
 import pandas as pd

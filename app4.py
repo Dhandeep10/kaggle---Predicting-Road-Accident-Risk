@@ -346,7 +346,8 @@ with tab_game:
 
         c1, c2 = st.columns([1,1])
         with c1:
-            if st.button("Play again", type="primary"):
+            # IMPORTANT: Give this button a unique key
+            if st.button("Play again", key="g_play_again", type="primary"):
                 st.session_state.g_round = 1
                 st.session_state.g_score = 0
                 st.session_state.g_last = None
@@ -354,75 +355,96 @@ with tab_game:
                 st.session_state.g_finished = False
                 rng = np.random.default_rng(777)
                 st.session_state.g_pair = (random_road(rng), random_road(rng))
-                st.rerun()
+                st.rerun() # Rerun here is fine, it resets the state
 
-    # If finished, show summary and stop drawing the round UI
+    # =================================================================
+    # KEY STRUCTURAL CHANGE: Use if/else to show EITHER game or summary
+    # =================================================================
     if st.session_state.g_finished:
+        # --- STATE 1: GAME IS FINISHED ---
+        # Only draw the summary. Do NOT draw the game UI.
         game_summary()
-        st.stop()
 
-    # Round UI
-    st.subheader(f"Round {st.session_state.g_round} / {st.session_state.g_max}")
-    A, B = st.session_state.g_pair
-    colA, colB = st.columns(2)
+    else:
+        # --- STATE 2: GAME IS IN PROGRESS ---
+        # Draw the round UI, buttons, and scoreboard.
+        
+        st.subheader(f"Round {st.session_state.g_round} / {st.session_state.g_max}")
+        A, B = st.session_state.g_pair
+        colA, colB = st.columns(2)
 
-    with colA:
-        st.markdown('<span class="badge warn">Road A</span>', unsafe_allow_html=True)
-        st.dataframe(pretty_table(A), hide_index=True, use_container_width=True, height=300)
-        if st.button("Choose Road A", key=f"g_pick_A_{st.session_state.g_round}", use_container_width=True, type="primary"):            
-            rA, rB = risk_only(A), risk_only(B)
-            safer = "A" if rA < rB else "B"
-            correct = (safer == "A")
-            st.session_state.g_last = (correct, rA, rB)
-            if correct: st.session_state.g_score += 1
-            st.session_state.g_hist.append({
-                "round": st.session_state.g_round, "choice":"A", "safer":safer,
-                "rA":rA, "rB":rB, "correct":correct, "chosen_base":A, "other_base":B
-            })
-            st.session_state.g_round += 1
-            if st.session_state.g_round > st.session_state.g_max:
-                st.session_state.g_finished = True
+        with colA:
+            st.markdown('<span class="badge warn">Road A</span>', unsafe_allow_html=True)
+            st.dataframe(pretty_table(A), hide_index=True, use_container_width=True, height=300)
+            
+            # FIX 1: Add unique round key to button
+            if st.button("Choose Road A", key=f"g_pick_A_{st.session_state.g_round}", use_container_width=True, type="primary"):
+                rA, rB = risk_only(A), risk_only(B)
+                safer = "A" if rA < rB else "B"
+                correct = (safer == "A")
+                st.session_state.g_last = (correct, rA, rB)
+                if correct: st.session_state.g_score += 1
+                st.session_state.g_hist.append({
+                    "round": st.session_state.g_round, "choice":"A", "safer":safer,
+                    "rA":rA, "rB":rB, "correct":correct, "chosen_base":A, "other_base":B
+                })
+                
+                st.session_state.g_round += 1
+                
+                # FIX 2: Only rerun if NOT finished
+                if st.session_state.g_round > st.session_state.g_max:
+                    st.session_state.g_finished = True
+                    # Let the script finish. State change will trigger
+                    # a clean rerun into the summary `if` block above.
+                else:
+                    rng = np.random.default_rng(st.session_state.g_round + 999)
+                    st.session_state.g_pair = (random_road(rng), random_road(rng))
+                    st.rerun() # Rerun to show the next round
+
+        with colB:
+            st.markdown('<span class="badge warn">Road B</span>', unsafe_allow_html=True)
+            st.dataframe(pretty_table(B), hide_index=True, use_container_width=True, height=300)
+            
+            # FIX 1: Add unique round key to button
+            if st.button("Choose Road B", key=f"g_pick_B_{st.session_state.g_round}", use_container_width=True, type="primary"):
+                rA, rB = risk_only(A), risk_only(B)
+                safer = "A" if rA < rB else "B"
+                correct = (safer == "B")
+                st.session_state.g_last = (correct, rA, rB)
+                if correct: st.session_state.g_score += 1
+                st.session_state.g_hist.append({
+                    "round": st.session_state.g_round, "choice":"B", "safer":safer,
+                    "rA":rA, "rB":rB, "correct":correct, "chosen_base":B, "other_base":A
+                })
+
+                st.session_state.g_round += 1
+
+                # FIX 2: Only rerun if NOT finished
+                if st.session_state.g_round > st.session_state.g_max:
+                    st.session_state.g_finished = True
+                    # Let the script finish. State change will trigger
+                    # a clean rerun into the summary `if` block above.
+                else:
+                    rng = np.random.default_rng(st.session_state.g_round + 999)
+                    st.session_state.g_pair = (random_road(rng), random_road(rng))
+                    st.rerun() # Rerun to show the next round
+
+        # Per-round feedback
+        # This will only show for the brief moment *after* a click,
+        # before the rerun for the next round happens.
+        if st.session_state.g_last:
+            correct, rA, rB = st.session_state.g_last
+            if correct:
+                st.success(f"Correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
             else:
-                rng = np.random.default_rng(st.session_state.g_round + 999)
-                st.session_state.g_pair = (random_road(rng), random_road(rng))
-                st.rerun()
+                st.error(f"Not correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
 
-    with colB:
-        st.markdown('<span class="badge warn">Road B</span>', unsafe_allow_html=True)
-        st.dataframe(pretty_table(B), hide_index=True, use_container_width=True, height=300)
-        if st.button("Choose Road B", key=f"g_pick_B_{st.session_state.g_round}", use_container_width=True, type="primary"):            
-            rA, rB = risk_only(A), risk_only(B)
-            safer = "A" if rA < rB else "B"
-            correct = (safer == "B")
-            st.session_state.g_last = (correct, rA, rB)
-            if correct: st.session_state.g_score += 1
-            st.session_state.g_hist.append({
-                "round": st.session_state.g_round, "choice":"B", "safer":safer,
-                "rA":rA, "rB":rB, "correct":correct, "chosen_base":B, "other_base":A
-            })
-            st.session_state.g_round += 1
-            if st.session_state.g_round > st.session_state.g_max:
-                st.session_state.g_finished = True
-            else:
-                rng = np.random.default_rng(st.session_state.g_round + 999)
-                st.session_state.g_pair = (random_road(rng), random_road(rng))
-                st.rerun()
-
-    # Per-round feedback
-    if st.session_state.g_last and not st.session_state.g_finished:
-        correct, rA, rB = st.session_state.g_last
-        if correct:
-            st.success(f"Correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
-        else:
-            st.error(f"Not correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
-
-    # Scoreboard
-    s1, s2 = st.columns(2)
-    with s1:
-        st.markdown(f'<div class="stat">Score<br><span class="v">{st.session_state.g_score}</span></div>', unsafe_allow_html=True)
-    with s2:
-        st.markdown(f'<div class="stat">Round<br><span class="v">{min(st.session_state.g_round, st.session_state.g_max)}/{st.session_state.g_max}</span></div>', unsafe_allow_html=True)
-
+        # Scoreboard
+        s1, s2 = st.columns(2)
+        with s1:
+            st.markdown(f'<div class="stat">Score<br><span class="v">{st.session_state.g_score}</span></div>', unsafe_allow_html=True)
+        with s2:
+            st.markdown(f'<div class="stat">Round<br><span class="v">{min(st.session_state.g_round, st.session_state.g_max)}/{st.session_state.g_max}</span></div>', unsafe_allow_html=True)
 
 # ---------------------- EXPLORE (fast) ----------------------
 with tab_explore:

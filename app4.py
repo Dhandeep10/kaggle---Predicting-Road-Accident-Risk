@@ -369,7 +369,8 @@ with tab_game:
     with colA:
         st.markdown('<span class="badge warn">Road A</span>', unsafe_allow_html=True)
         st.dataframe(pretty_table(A), hide_index=True, use_container_width=True, height=300)
-        if st.button("Choose Road A", key=f"g_pick_A_{st.session_state.g_round}", use_container_width=True, type="primary"):            rA, rB = risk_only(A), risk_only(B)
+        if st.button("Choose Road A", key=f"g_pick_A_{st.session_state.g_round}", use_container_width=True, type="primary"):            
+            rA, rB = risk_only(A), risk_only(B)
             safer = "A" if rA < rB else "B"
             correct = (safer == "A")
             st.session_state.g_last = (correct, rA, rB)
@@ -389,7 +390,8 @@ with tab_game:
     with colB:
         st.markdown('<span class="badge warn">Road B</span>', unsafe_allow_html=True)
         st.dataframe(pretty_table(B), hide_index=True, use_container_width=True, height=300)
-        if st.button("Choose Road B", key=f"g_pick_B_{st.session_state.g_round}", use_container_width=True, type="primary"):            rA, rB = risk_only(A), risk_only(B)
+        if st.button("Choose Road B", key=f"g_pick_B_{st.session_state.g_round}", use_container_width=True, type="primary"):            
+            rA, rB = risk_only(A), risk_only(B)
             safer = "A" if rA < rB else "B"
             correct = (safer == "B")
             st.session_state.g_last = (correct, rA, rB)

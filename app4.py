@@ -737,27 +737,22 @@ def pretty_table(base: Dict) -> pd.DataFrame:
         ]
     })
 
-# ======================
-# Tabs: Game | Explore | Journey
-# ======================
-tab_game, tab_explore, tab_journey = st.tabs([
-    "🎮 Game – Pick the safer road (10 rounds)",
-    "🔎 Explore a single road",
-    "🚦 Journey (start → finish)"
-])
-
-# ---------------------- GAME (best-of-10 with final summary) ----------------------
+# ---------------------- GAME ----------------------
 with tab_game:
-    # State
+    # State - FIXED: Use unique keys for each round
     if "g_round" not in st.session_state: st.session_state.g_round = 1
     if "g_max" not in st.session_state: st.session_state.g_max = 10
     if "g_score" not in st.session_state: st.session_state.g_score = 0
     if "g_pair" not in st.session_state:
         rng = np.random.default_rng(777)
         st.session_state.g_pair = (random_road(rng), random_road(rng))
-    if "g_last" not in st.session_state: st.session_state.g_last = None              # (correct, rA, rB)
-    if "g_hist" not in st.session_state: st.session_state.g_hist = []               # [{round, choice, safer, rA, rB, correct, chosen_base, other_base}]
+    if "g_last" not in st.session_state: st.session_state.g_last = None
+    if "g_hist" not in st.session_state: st.session_state.g_hist = []
     if "g_finished" not in st.session_state: st.session_state.g_finished = False
+    if "g_round_seed" not in st.session_state: st.session_state.g_round_seed = 777
+
+    def get_unique_key(prefix, round_num):
+        return f"{prefix}_round{round_num}_seed{st.session_state.g_round_seed}"
 
     def summarize_mistakes(rows):
         counts = {"night":0,"fog":0,"high_speed":0,"sharp_curve":0,"few_lanes":0,"no_signs":0,"acc_hotspot":0}
@@ -786,118 +781,158 @@ with tab_game:
             return
         correct = sum(1 for h in st.session_state.g_hist if h["correct"])
         acc = 100.0 * correct / total
-        st.subheader("Game summary")
-        st.success(f"Score: {correct} / {total}  ({acc:.1f}%)")
+        st.subheader("Game Summary")
+        st.success(f"Final Score: {correct} / {total} ({acc:.1f}%)")
 
         top_mistakes = summarize_mistakes(st.session_state.g_hist)
         cL, cR = st.columns(2)
         with cL:
-            st.markdown("Where you went wrong")
+            st.markdown("**Common Mistakes**")
             if top_mistakes:
                 for name, cnt in top_mistakes:
-                    st.markdown(f"- {name}: {cnt} rounds")
+                    st.markdown(f"• {name}: {cnt} times")
             else:
-                st.markdown("- No consistent mistakes detected.")
+                st.markdown("• No patterns detected - good job!")
         with cR:
-            st.markdown("Improvement tips")
-            st.markdown(
-                "- Prefer good lighting and clear signage.\n"
-                "- Reduce speed at night, on curves, or in bad weather.\n"
-                "- Avoid known accident hotspots; detour if necessary.\n"
-                "- More lanes are generally safer at the same speed."
-            )
+            st.markdown("**Key Tips**")
+            st.markdown("""
+            • Always prioritize good lighting and clear signage
+            • Reduce speed in poor weather, curves, or at night
+            • Avoid routes with many past accidents
+            • Wider roads are safer at the same speed
+            • Look for road signs to guide your decisions
+            """)
 
         rows = []
         for h in st.session_state.g_hist:
             rows.append({
                 "Round": h["round"],
-                "Choice": h["choice"],
-                "Safer": h["safer"],
+                "You Picked": h["choice"],
+                "Safer Was": h["safer"],
                 "Risk A": f"{h['rA']:.3f}",
                 "Risk B": f"{h['rB']:.3f}",
-                "Correct": "Yes" if h["correct"] else "No"
+                "Correct": "✅" if h["correct"] else "❌"
             })
-        st.markdown("Round-by-round")
+        st.markdown("**Round-by-Round Breakdown**")
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-        c1, c2 = st.columns([1,1])
-        with c1:
-            if st.button("Play again", type="primary"):
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("🎮 Play Again", type="primary", use_container_width=True):
                 st.session_state.g_round = 1
                 st.session_state.g_score = 0
                 st.session_state.g_last = None
                 st.session_state.g_hist = []
                 st.session_state.g_finished = False
-                rng = np.random.default_rng(777)
+                rng = np.random.default_rng(st.session_state.g_round_seed)
                 st.session_state.g_pair = (random_road(rng), random_road(rng))
+                st.session_state.g_round_seed += 100  # Different seed for replay
                 st.rerun()
 
-    # If finished, show summary and stop drawing the round UI
+    # If finished, show summary and stop drawing round UI
     if st.session_state.g_finished:
         game_summary()
         st.stop()
 
-    # Round UI
-    st.subheader(f"Round {st.session_state.g_round} / {st.session_state.g_max}")
+    # Round UI with UNIQUE button keys
+    st.markdown(f"### Round {st.session_state.g_round} of {st.session_state.g_max}")
+    
+    # Generate fresh pair if needed
     A, B = st.session_state.g_pair
-    colA, colB = st.columns(2)
+    colA, colB = st.columns([1, 1])
 
     with colA:
-        st.markdown('<span class="badge warn">Road A</span>', unsafe_allow_html=True)
-        st.dataframe(pretty_table(A), hide_index=True, use_container_width=True, height=300)
-        if st.button("Choose Road A", key=f"g_pick_A", use_container_width=True, type="primary"):
+        st.markdown('<span class="badge warn">ROAD A</span>', unsafe_allow_html=True)
+        st.dataframe(pretty_table(A), hide_index=True, use_container_width=True, height=280)
+        if st.button("✅ Choose Road A", 
+                     key=get_unique_key("game_a", st.session_state.g_round), 
+                     use_container_width=True, 
+                     help="Select this road for your journey"):
             rA, rB = risk_only(A), risk_only(B)
             safer = "A" if rA < rB else "B"
             correct = (safer == "A")
             st.session_state.g_last = (correct, rA, rB)
-            if correct: st.session_state.g_score += 1
+            
+            # Store round history with detail
             st.session_state.g_hist.append({
-                "round": st.session_state.g_round, "choice":"A", "safer":safer,
-                "rA":rA, "rB":rB, "correct":correct, "chosen_base":A, "other_base":B
+                "round": st.session_state.g_round, 
+                "choice": "A", 
+                "safer": safer,
+                "rA": rA, 
+                "rB": rB, 
+                "correct": correct, 
+                "chosen_base": A, 
+                "other_base": B
             })
+            
+            if correct: 
+                st.session_state.g_score += 1
             st.session_state.g_round += 1
+            
+            # Next round or finish
             if st.session_state.g_round > st.session_state.g_max:
                 st.session_state.g_finished = True
             else:
                 rng = np.random.default_rng(st.session_state.g_round + 999)
                 st.session_state.g_pair = (random_road(rng), random_road(rng))
+                st.session_state.g_round_seed = st.session_state.g_round * 100  # Fresh seed
+                
             st.rerun()
 
     with colB:
-        st.markdown('<span class="badge warn">Road B</span>', unsafe_allow_html=True)
-        st.dataframe(pretty_table(B), hide_index=True, use_container_width=True, height=300)
-        if st.button("Choose Road B", key=f"g_pick_B", use_container_width=True, type="primary"):
+        st.markdown('<span class="badge warn">ROAD B</span>', unsafe_allow_html=True)
+        st.dataframe(pretty_table(B), hide_index=True, use_container_width=True, height=280)
+        if st.button("✅ Choose Road B", 
+                     key=get_unique_key("game_b", st.session_state.g_round), 
+                     use_container_width=True, 
+                     help="Select this road for your journey"):
             rA, rB = risk_only(A), risk_only(B)
             safer = "A" if rA < rB else "B"
             correct = (safer == "B")
             st.session_state.g_last = (correct, rA, rB)
-            if correct: st.session_state.g_score += 1
+            
+            # Store round history with detail
             st.session_state.g_hist.append({
-                "round": st.session_state.g_round, "choice":"B", "safer":safer,
-                "rA":rA, "rB":rB, "correct":correct, "chosen_base":B, "other_base":A
+                "round": st.session_state.g_round, 
+                "choice": "B", 
+                "safer": safer,
+                "rA": rA, 
+                "rB": rB, 
+                "correct": correct, 
+                "chosen_base": B, 
+                "other_base": A
             })
+            
+            if correct: 
+                st.session_state.g_score += 1
             st.session_state.g_round += 1
+            
+            # Next round or finish
             if st.session_state.g_round > st.session_state.g_max:
                 st.session_state.g_finished = True
             else:
                 rng = np.random.default_rng(st.session_state.g_round + 999)
                 st.session_state.g_pair = (random_road(rng), random_road(rng))
+                st.session_state.g_round_seed = st.session_state.g_round * 100  # Fresh seed
+                
             st.rerun()
 
-    # Per-round feedback
-    if st.session_state.g_last and not st.session_state.g_finished:
-        correct, rA, rB = st.session_state.g_last
-        if correct:
-            st.success(f"Correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
+    # Per-round feedback (only show after choice, not auto)
+    if st.session_state.g_hist:
+        last_round = st.session_state.g_hist[-1]
+        if last_round["correct"]:
+            st.success(f"Round {last_round['round']}: ✅ Correct! A={last_round['rA']:.3f}, B={last_round['rB']:.3f}")
         else:
-            st.error(f"Not correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
+            st.error(f"Round {last_round['round']}: ❌ Not correct. A={last_round['rA']:.3f}, B={last_round['rB']:.3f}")
 
-    # Scoreboard
+    # Scoreboard - show current status
     s1, s2 = st.columns(2)
     with s1:
         st.markdown(f'<div class="stat">Score<br><span class="v">{st.session_state.g_score}</span></div>', unsafe_allow_html=True)
     with s2:
-        st.markdown(f'<div class="stat">Round<br><span class="v">{min(st.session_state.g_round, st.session_state.g_max)}/{st.session_state.g_max}</span></div>', unsafe_allow_html=True)
+        progress = min(st.session_state.g_round - 1, st.session_state.g_max)
+        st.markdown(f'<div class="stat">Progress<br><span class="v">{progress}/{st.session_state.g_max}</span></div>', unsafe_allow_html=True)
+
 
 # ---------------------- EXPLORE ----------------------
 with tab_explore:

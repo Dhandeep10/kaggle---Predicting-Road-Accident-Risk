@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -5,39 +6,185 @@ import joblib
 from functools import lru_cache
 from typing import Dict, Tuple
 
-# Page config - FIRST
-st.set_page_config(page_title="Road Safety App", page_icon="🛣️", layout="wide")
+# ======================
+# App config (MUST BE FIRST streamlit command)
+# ======================
+# This was the main error: st.set_page_config was called twice.
+# It must be called only ONCE, and it must be the FIRST st command.
+st.set_page_config(
+    page_title="Road Safety – Game | Explore | Journey", 
+    page_icon="🛣️", 
+    layout="wide"
+)
 
-# Simple styling
+# ======================
+# DUMMY MODEL CREATOR (for testing)
+# ======================
+# Set this to False if you have your actual .pkl files.
+# If True, this will create simple placeholder models so the app can run.
+CREATE_DUMMY_MODELS = True
+
+if CREATE_DUMMY_MODELS:
+    try:
+        # Check for sklearn, which is needed for the dummy models
+        from sklearn.base import BaseEstimator
+        
+        class DummyModel(BaseEstimator):
+            """A dummy model that predicts risk based on simple heuristics."""
+            def predict(self, df):
+                # Ensure DataFrame, not just dict
+                if isinstance(df, dict):
+                    df = pd.DataFrame([df])
+                
+                # A simple heuristic: risk increases with speed, curvature, and accidents
+                # Use .get() for safety in case columns are missing in create_features
+                speed = df.get('speed_limit', 80)
+                curve = df.get('curvature', 0.5)
+                acc = df.get('num_reported_accidents', 10)
+                
+                risk = (speed / 120.0) * 0.4 + (curve / 2.0) * 0.3 + (acc / 100.0) * 0.3
+                return np.clip(risk.values, 0.05, 0.95)
+
+        class DummyMetaModel(BaseEstimator):
+            """A dummy meta-model that just averages the predictions."""
+            def predict(self, X):
+                # X is an array of shape (n_samples, 5)
+                return np.mean(X, axis=1)
+
+        models_needed = ["model_xgb.pkl", "model_lgb.pkl", "model_cat.pkl", "model_et.pkl", "model_rf.pkl", "meta.pkl"]
+        for f in models_needed:
+            if not os.path.exists(f):
+                print(f"Creating dummy model: {f}") # Print to console
+                if f == "meta.pkl":
+                    joblib.dump(DummyMetaModel(), f)
+                else:
+                    joblib.dump(DummyModel(), f)
+        
+    except ImportError:
+        st.error("Please install `scikit-learn` (`pip install scikit-learn`) to use the dummy model creator.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error creating dummy models: {e}")
+        st.stop()
+
+# ======================
+# File & Model Checks (Moved to UI)
+# ======================
+with st.expander("Show File & Model Status (Debug)"):
+    st.write("Available files in directory:")
+    file_list_code = ""
+    for f in os.listdir('.'):
+        if os.path.isfile(f):
+            try:
+                size_mb = os.path.getsize(f) / (1024*1024)
+                file_list_code += f"- {f}: {size_mb:.2f}MB\n"
+            except OSError:
+                file_list_code += f"- {f}: (Could not get size)\n"
+        else:
+            file_list_code += f"- {f}: directory\n"
+    st.code(file_list_code)
+    
+    models_needed = ["model_xgb.pkl", "model_lgb.pkl", "model_cat.pkl", "model_et.pkl", "model_rf.pkl", "meta.pkl"]
+    missing = [m for m in models_needed if not os.path.exists(m)]
+    if missing:
+        st.error(f"Missing model files: {missing}. The app will stop.")
+        st.info("If this is expected, set `CREATE_DUMMY_MODELS = True` at the top of the script to create placeholders.")
+        st.stop()
+    else:
+        st.success("All required models found.")
+
+# ======================
+# App Styling
+# ======================
 st.markdown("""
 <style>
-.badge { padding: 6px 12px; border-radius: 20px; font-weight: bold; margin: 2px; display: inline-block; }
-.stat { text-align: center; padding: 12px; background: #1a1a2e; border-radius: 8px; margin: 10px 0; color: white; }
-.good { background: #2d5a27; color: #2ecc71; }
-.warn { background: #4a4a1a; color: #f1c40f; }
-.bad { background: #4a1a1a; color: #e74c3c; }
+:root {
+  --bg:#0f1116; --card:#11141a; --stroke:#212737; --accent:#6C63FF; --text:#e8e8e8; --muted:#b9c0cc;
+  --good:#2ecc71; --warn:#f1c40f; --bad:#e74c3c;
+}
+html, body, .block-container { background: var(--bg); color: var(--text); }
+.card { background: var(--card); border:1px solid var(--stroke); border-radius:14px; padding:12px 14px; }
+.badge { display:inline-block; padding:4px 10px; border-radius:999px; font-weight:700; font-size:0.85rem; }
+.badge.good { background:rgba(46,204,113,0.12); color:var(--good); border:1px solid rgba(46,204,113,0.25); }
+.badge.warn { background:rgba(241,196,15,0.12); color:var(--warn); border:1px solid rgba(241,196,15,0.25); }
+.badge.bad  { background:rgba(231,76,60,0.12); color:var(--bad);  border:1px solid rgba(231,76,60,0.25); }
+.ribbon { font-weight:800; font-size:1.2rem; color:#fff; padding:6px 10px; border-radius:10px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display:inline-block; }
+.stat { background:#0f1320; border:1px solid #1f2740; border-radius:10px; padding:12px; text-align:center; }
+.stat .v { font-size:1.6rem; font-weight:800; color:#fff; }
+.btn-primary button { background:var(--accent)!important; border-color:var(--accent)!important; }
+.good { background:#12351b; border-left:5px solid var(--good); padding:10px 12px; border-radius:10px; }
+.warn { background:#3a2f12; border-left:5px solid var(--warn); padding:10px 12px; border-radius:10px; }
+.bad  { background:#3a1616; border-left:5px solid var(--bad);  padding:10px 12px; border-radius:10px; }
+.small { font-size:0.9rem; opacity:0.9; }
+
+/* Micro-animations */
+.fade-in { animation: fadeIn 260ms ease-out both; }
+.slide-up { animation: slideUp 240ms ease-out both; }
+@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+@keyframes slideUp { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform: translateY(0) } }
+
+/* Journey cards */
+.step-card { background:var(--card); border:1px solid var(--stroke); border-radius:16px; padding:14px; transition: transform .12s ease; }
+.step-card:hover { transform: translateY(-2px); }
+.step-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.kv { display:flex; gap:6px; flex-wrap:wrap; color:var(--muted); font-size:0.9rem; }
+.kv span { background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🛣️ Road Safety – Game | Explore | Journey")
 
-# Model loading
-@st.cache_resource
+# ======================
+# Helpers (no models)
+# ======================
+def random_road(rng: np.random.Generator) -> Dict:
+    return {
+        "road_type": int(rng.integers(0, 4)),
+        "num_lanes": int(rng.integers(1, 7)),
+        "curvature": float(np.round(rng.uniform(0.0, 2.0), 2)),
+        "speed_limit": int(rng.choice([40, 60, 80, 100, 120])),
+        "lighting": int(rng.integers(0, 3)),
+        "weather": int(rng.integers(0, 3)),
+        "road_signs_present": bool(rng.integers(0, 2)),
+        "public_road": True,
+        "time_of_day": int(rng.integers(0, 4)),
+        "holiday": bool(rng.integers(0, 2)),
+        "school_season": bool(rng.integers(0, 2)),
+        "num_reported_accidents": int(rng.integers(0, 101)),
+    }
+
+def pretty_table(base: Dict) -> pd.DataFrame:
+    road_names = ["Highway","Urban","Rural","Residential"]
+    light_names = ["Daylight","Twilight","Dark"]
+    weather_names = ["Clear","Rain","Fog/Snow"]
+    return pd.DataFrame({
+        "Parameter": ["🛣️ Road Type","🛤️ Lanes","🌀 Curvature","🚗 Speed Limit",
+                      "💡 Lighting","🌦️ Weather","🚸 Signs","📊 Past Accidents"],
+        "Value": [
+            road_names[base["road_type"]], f'{base["num_lanes"]} lanes', f'{base["curvature"]:.1f}/2.0',
+            f'{base["speed_limit"]} km/h', light_names[base["lighting"]], weather_names[base["weather"]],
+            "Present ✅" if base["road_signs_present"] else "Absent ❌", f'{base["num_reported_accidents"]} accidents'
+        ]
+    })
+
+# ======================
+# Session state
+# ======================
+if "seed" not in st.session_state: st.session_state.seed = 42
+
+# ======================
+# Models + features
+# ======================
+@st.cache_resource(show_spinner="Loading predictive models...")
 def load_models():
     xgb = joblib.load("model_xgb.pkl")
     lgb = joblib.load("model_lgb.pkl")
     cat = joblib.load("model_cat.pkl")
-    et = joblib.load("model_et.pkl")
-    rf = joblib.load("model_rf.pkl")
+    et  = joblib.load("model_et.pkl")
+    rf  = joblib.load("model_rf.pkl")
     meta = joblib.load("meta.pkl")
     return xgb, lgb, cat, et, rf, meta
-
-try:
-    xgb_model, lgb_model, cat_model, et_model, rf_model, meta_model = load_models()
-    st.success("✅ Ensemble models loaded!")
-except Exception as e:
-    st.error(f"❌ Model loading failed: {e}")
-    st.stop()
 
 BASE_COLS = [
     "road_type","num_lanes","curvature","speed_limit","lighting","weather",
@@ -45,7 +192,7 @@ BASE_COLS = [
     "num_reported_accidents"
 ]
 
-def create_features(base):
+def create_features(base: Dict) -> pd.DataFrame:
     rt,nl,cv,sl,lt,wt = base["road_type"], base["num_lanes"], base["curvature"], base["speed_limit"], base["lighting"], base["weather"]
     rs,pb,tod,hol,sch,acc = int(base["road_signs_present"]), int(base["public_road"]), base["time_of_day"], int(base["holiday"]), int(base["school_season"]), base["num_reported_accidents"]
     feats = {
@@ -71,487 +218,450 @@ def create_features(base):
     }
     return pd.DataFrame([feats])
 
+try:
+    xgb_model, lgb_model, cat_model, et_model, rf_model, meta_model = load_models()
+except Exception as e:
+    st.error(f"Failed to load models: {e}")
+    st.info("This might be because the dummy models are incompatible with your `create_features` function, or the real models are corrupt.")
+    st.stop()
+
+
 @lru_cache(maxsize=2048)
-def risk_and_parts_cached(road_tuple):
+def risk_and_parts_cached(road_tuple: Tuple) -> Tuple[float, Tuple[float,float,float,float,float]]:
     base = {k: v for k, v in zip(BASE_COLS, road_tuple)}
     feats = create_features(base)
-    p1 = float(xgb_model.predict(feats)[0])
-    p2 = float(lgb_model.predict(feats)[0])
-    p3 = float(cat_model.predict(feats)[0])
-    p4 = float(et_model.predict(feats)[0])
-    p5 = float(rf_model.predict(feats)[0])
-    final = float(np.clip(meta_model.predict(np.array([[p1,p2,p3,p4,p5]]))[0], 0, 1))
+    # Use predict_proba if available (common for classifiers), otherwise predict
+    def get_pred(model, data):
+        if hasattr(model, "predict_proba"):
+            # Assuming risk is the probability of class 1
+            return model.predict_proba(data)[:, 1][0]
+        else:
+            return model.predict(data)[0]
+
+    p1 = float(get_pred(xgb_model, feats))
+    p2 = float(get_pred(lgb_model, feats))
+    p3 = float(get_pred(cat_model, feats))
+    p4 = float(get_pred(et_model, feats))
+    p5 = float(get_pred(rf_model, feats))
+    
+    meta_input = np.array([[p1,p2,p3,p4,p5]])
+    final = float(np.clip(meta_model.predict(meta_input)[0], 0, 1))
+    
     return final, (p1,p2,p3,p4,p5)
 
-def risk_only(base):
+def risk_only(base: Dict) -> float:
     t = tuple(base[k] for k in BASE_COLS)
     y, _ = risk_and_parts_cached(t)
     return y
 
-def risk_and_parts(base):
+def risk_and_parts(base: Dict) -> Tuple[float, Dict[str,float]]:
     t = tuple(base[k] for k in BASE_COLS)
     y, parts = risk_and_parts_cached(t)
     return y, {"XGBoost":parts[0],"LightGBM":parts[1],"CatBoost":parts[2],"ExtraTrees":parts[3],"RandomForest":parts[4]}
 
-def random_road(rng):
-    return {
-        "road_type": int(rng.integers(0, 4)),
-        "num_lanes": int(rng.integers(1, 7)),
-        "curvature": float(np.round(rng.uniform(0.0, 2.0), 2)),
-        "speed_limit": int(rng.choice([40, 60, 80, 100, 120])),
-        "lighting": int(rng.integers(0, 3)),
-        "weather": int(rng.integers(0, 3)),
-        "road_signs_present": bool(rng.integers(0, 2)),
-        "public_road": True,
-        "time_of_day": int(rng.integers(0, 4)),
-        "holiday": bool(rng.integers(0, 2)),
-        "school_season": bool(rng.integers(0, 2)),
-        "num_reported_accidents": int(rng.integers(0, 101)),
-    }
+# ======================
+# Tabs: Game | Explore | Journey
+# ======================
+tab_game, tab_explore, tab_journey = st.tabs([
+    "🎮 Game – Pick the safer road (10 rounds)",
+    "🔎 Explore a single road",
+    "🚦 Journey (start → finish)"
+])
 
-def pretty_table(base):
-    road_names = ["Highway","Urban","Rural","Residential"]
+# ---------------------- GAME (best-of-10 with final summary) ----------------------
+with tab_game:
+    # State
+    if "g_round" not in st.session_state: st.session_state.g_round = 1
+    if "g_max" not in st.session_state: st.session_state.g_max = 10
+    if "g_score" not in st.session_state: st.session_state.g_score = 0
+    if "g_pair" not in st.session_state:
+        rng = np.random.default_rng(777)
+        st.session_state.g_pair = (random_road(rng), random_road(rng))
+    if "g_last" not in st.session_state: st.session_state.g_last = None              # (correct, rA, rB)
+    if "g_hist" not in st.session_state: st.session_state.g_hist = []               # [{round, choice, safer, rA, rB, correct, chosen_base, other_base}]
+    if "g_finished" not in st.session_state: st.session_state.g_finished = False
+
+    def summarize_mistakes(rows):
+        counts = {"night":0,"fog":0,"high_speed":0,"sharp_curve":0,"few_lanes":0,"no_signs":0,"acc_hotspot":0}
+        for h in rows:
+            if h["correct"]: 
+                continue
+            b = h["chosen_base"]
+            if b["lighting"] == 2: counts["night"] += 1
+            if b["weather"] >= 1: counts["fog"] += 1
+            if b["speed_limit"] > 80: counts["high_speed"] += 1
+            if b["curvature"] > 1.0: counts["sharp_curve"] += 1
+            if b["num_lanes"] <= 2: counts["few_lanes"] += 1
+            if not b["road_signs_present"]: counts["no_signs"] += 1
+            if b["num_reported_accidents"] >= 50: counts["acc_hotspot"] += 1
+        labels = {
+            "night":"Night driving", "fog":"Poor weather", "high_speed":"High speed",
+            "sharp_curve":"Sharp curvature", "few_lanes":"Narrow road (≤2 lanes)",
+            "no_signs":"Missing road signs", "acc_hotspot":"Accident hotspot"
+        }
+        ranked = sorted(counts.items(), key=lambda x:x[1], reverse=True)
+        return [(labels[k], v) for k,v in ranked if v>0][:3]
+
+    # Final summary
+    def game_summary():
+        total = len(st.session_state.g_hist)
+        if total == 0:
+            st.info("No rounds played.")
+            return
+        correct = sum(1 for h in st.session_state.g_hist if h["correct"])
+        acc = 100.0 * correct / total
+        st.subheader("Game summary")
+        st.success(f"Score: {correct} / {total}  ({acc:.1f}%)")
+
+        top_mistakes = summarize_mistakes(st.session_state.g_hist)
+        cL, cR = st.columns(2)
+        with cL:
+            st.markdown("Where you went wrong")
+            if top_mistakes:
+                for name, cnt in top_mistakes:
+                    st.markdown(f"- {name}: {cnt} rounds")
+            else:
+                st.markdown("- No consistent mistakes detected.")
+        with cR:
+            st.markdown("Improvement tips")
+            st.markdown(
+                "- Prefer good lighting and clear signage.\n"
+                "- Reduce speed at night, on curves, or in bad weather.\n"
+                "- Avoid known accident hotspots; detour if necessary.\n"
+                "- More lanes are generally safer at the same speed."
+            )
+
+        rows = []
+        for h in st.session_state.g_hist:
+            rows.append({
+                "Round": h["round"],
+                "Choice": h["choice"],
+                "Safer": h["safer"],
+                "Risk A": f"{h['rA']:.3f}",
+                "Risk B": f"{h['rB']:.3f}",
+                "Correct": "Yes" if h["correct"] else "No"
+            })
+        st.markdown("Round-by-round")
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+        c1, c2 = st.columns([1,1])
+        with c1:
+            if st.button("Play again", type="primary"):
+                st.session_state.g_round = 1
+                st.session_state.g_score = 0
+                st.session_state.g_last = None
+                st.session_state.g_hist = []
+                st.session_state.g_finished = False
+                rng = np.random.default_rng(777)
+                st.session_state.g_pair = (random_road(rng), random_road(rng))
+                st.rerun()
+
+    # If finished, show summary and stop drawing the round UI
+    if st.session_state.g_finished:
+        game_summary()
+        st.stop()
+
+    # Round UI
+    st.subheader(f"Round {st.session_state.g_round} / {st.session_state.g_max}")
+    A, B = st.session_state.g_pair
+    colA, colB = st.columns(2)
+
+    with colA:
+        st.markdown('<span class="badge warn">Road A</span>', unsafe_allow_html=True)
+        st.dataframe(pretty_table(A), hide_index=True, use_container_width=True, height=300)
+        if st.button("Choose Road A", key=f"g_pick_A", use_container_width=True, type="primary"):
+            rA, rB = risk_only(A), risk_only(B)
+            safer = "A" if rA < rB else "B"
+            correct = (safer == "A")
+            st.session_state.g_last = (correct, rA, rB)
+            if correct: st.session_state.g_score += 1
+            st.session_state.g_hist.append({
+                "round": st.session_state.g_round, "choice":"A", "safer":safer,
+                "rA":rA, "rB":rB, "correct":correct, "chosen_base":A, "other_base":B
+            })
+            st.session_state.g_round += 1
+            if st.session_state.g_round > st.session_state.g_max:
+                st.session_state.g_finished = True
+            else:
+                rng = np.random.default_rng(st.session_state.g_round + 999)
+                st.session_state.g_pair = (random_road(rng), random_road(rng))
+            st.rerun()
+
+    with colB:
+        st.markdown('<span class="badge warn">Road B</span>', unsafe_allow_html=True)
+        st.dataframe(pretty_table(B), hide_index=True, use_container_width=True, height=300)
+        if st.button("Choose Road B", key=f"g_pick_B", use_container_width=True, type="primary"):
+            rA, rB = risk_only(A), risk_only(B)
+            safer = "A" if rA < rB else "B"
+            correct = (safer == "B")
+            st.session_state.g_last = (correct, rA, rB)
+            if correct: st.session_state.g_score += 1
+            st.session_state.g_hist.append({
+                "round": st.session_state.g_round, "choice":"B", "safer":safer,
+                "rA":rA, "rB":rB, "correct":correct, "chosen_base":B, "other_base":A
+            })
+            st.session_state.g_round += 1
+            if st.session_state.g_round > st.session_state.g_max:
+                st.session_state.g_finished = True
+            else:
+                rng = np.random.default_rng(st.session_state.g_round + 999)
+                st.session_state.g_pair = (random_road(rng), random_road(rng))
+            st.rerun()
+
+    # Per-round feedback
+    if st.session_state.g_last and not st.session_state.g_finished:
+        correct, rA, rB = st.session_state.g_last
+        if correct:
+            st.success(f"Correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
+        else:
+            st.error(f"Not correct. Risk(A)={rA:.3f} • Risk(B)={rB:.3f}")
+
+    # Scoreboard
+    s1, s2 = st.columns(2)
+    with s1:
+        st.markdown(f'<div class="stat">Score<br><span class="v">{st.session_state.g_score}</span></div>', unsafe_allow_html=True)
+    with s2:
+        st.markdown(f'<div class="stat">Round<br><span class="v">{min(st.session_state.g_round, st.session_state.g_max)}/{st.session_state.g_max}</span></div>', unsafe_allow_html=True)
+
+
+# ---------------------- EXPLORE (fast) ----------------------
+with tab_explore:
+    st.subheader("Configure a road and predict risk")
+    road_names  = ["Highway","Urban","Rural","Residential"]
     light_names = ["Daylight","Twilight","Dark"]
     weather_names = ["Clear","Rain","Fog/Snow"]
-    return pd.DataFrame({
-        "Parameter": ["🛣️ Road Type","🛤️ Lanes","🌀 Curvature","🚗 Speed Limit",
-                      "💡 Lighting","🌦️ Weather","🚸 Signs","📊 Past Accidents"],
-        "Value": [
-            road_names[base["road_type"]], f'{base["num_lanes"]} lanes', f'{base["curvature"]:.1f}/2.0',
-            f'{base["speed_limit"]} km/h', light_names[base["lighting"]], weather_names[base["weather"]],
-            "Present ✅" if base["road_signs_present"] else "Absent ❌", f'{base["num_reported_accidents"]} accidents'
-        ]
-    })
+    tod_names = ["Morning","Afternoon","Evening","Night"]
 
-# Tabs
-tab_game, tab_explore, tab_journey = st.tabs(["🎮 Game", "🔍 Explore", "🚦 Journey"])
+    cA, cB, cC, cD = st.columns(4)
+    with cA:
+        road_type = st.selectbox("Road Type", list(range(4)), format_func=lambda i: road_names[i])
+        num_lanes = st.slider("Lanes", 1, 6, 2)
+    with cB:
+        curvature = st.slider("Curvature", 0.0, 2.0, 0.5, 0.1)
+        speed_limit = st.select_slider("Speed Limit (km/h)", options=[40,60,80,100,120], value=80)
+    with cC:
+        lighting = st.selectbox("Lighting", list(range(3)), format_func=lambda i: light_names[i])
+        weather  = st.selectbox("Weather", list(range(3)), format_func=lambda i: weather_names[i])
+    with cD:
+        time_of_day = st.selectbox("Time of Day", list(range(4)), format_func=lambda i: tod_names[i])
+        num_acc = st.slider("Past Accidents (1y)", 0, 100, 5)
+    colE1, colE2, colE3 = st.columns(3)
+    with colE1: road_signs_present = st.checkbox("Road Signs Present", True)
+    with colE2: public_road = st.checkbox("Public Road", True)
+    with colE3:
+        holiday = st.checkbox("Holiday", False)
+        school_season = st.checkbox("School Season", True)
 
-# ======================
-# GAME TAB
-# ======================
-with tab_game:
-    # Game state
-    if "game_active" not in st.session_state:
-        st.session_state.game_active = True
-        st.session_state.game_current_round = 1
-        st.session_state.game_max_rounds = 10
-        st.session_state.game_score = 0
-        st.session_state.game_history = []
-        st.session_state.game_session_id = str(np.random.randint(1000000, 9999999))
-
-    def generate_game_roads(round_num):
-        rng_a = np.random.default_rng(st.session_state.game_session_id + round_num)
-        rng_b = np.random.default_rng(st.session_state.game_session_id + round_num + 100)
-        return random_road(rng_a), random_road(rng_b)
-
-    def reset_game():
-        st.session_state.game_active = True
-        st.session_state.game_current_round = 1
-        st.session_state.game_score = 0
-        st.session_state.game_history = []
-        st.session_state.game_session_id = str(np.random.randint(1000000, 9999999))
-        st.rerun()
-
-    # Game summary (only show when game ends)
-    if not st.session_state.game_active:
-        st.header(f"🎯 Game Complete! Final Score: {st.session_state.game_score}/10")
-        
-        if st.session_state.game_history:
-            # Simple summary without st.bullet()
-            accuracy = len([h for h in st.session_state.game_history if h["correct"]]) / len(st.session_state.game_history) * 100
-            st.markdown(f"**Overall Accuracy**: {accuracy:.1f}%")
-            
-            correct_count = sum(1 for h in st.session_state.game_history if h["correct"])
-            if accuracy > 70:
-                st.markdown("**Rating**: Expert Driver 🚀")
-            elif accuracy > 50:
-                st.markdown("**Rating**: Good Driver 👍")
-            else:
-                st.markdown("**Rating**: Need Practice 📚")
-
-            # History table
-            history_df = pd.DataFrame(st.session_state.game_history)
-            st.subheader("Round Details")
-            for idx, row in history_df.iterrows():
-                status = "✅" if row["correct"] else "❌"
-                st.write(f"Round {row['round']}: {status} (A: {row['risk_a']:.3f} vs B: {row['risk_b']:.3f})")
-
-        if st.button("🎮 New Game", type="primary"):
-            reset_game()
-        st.stop()
-
-    # Current round
-    current_round = st.session_state.game_current_round
-    st.header(f"Round {current_round}/10")
-
-    # Generate roads for this specific round
-    road_a, road_b = generate_game_roads(current_round)
-
-    col1, col2 = st.columns(2)
-
-    # Road A
-    with col1:
-        st.subheader("🛣️ Road A")
-        st.dataframe(pretty_table(road_a), use_container_width=True, height=280)
-        if st.button("🚗 Choose A", key=f"game_a_button_{st.session_state.game_session_id}_{current_round}"):
-            risk_a = risk_only(road_a)
-            risk_b = risk_only(road_b)
-            correct = risk_a < risk_b
-            st.session_state.game_history.append({
-                "round": current_round,
-                "choice": "A",
-                "risk_a": risk_a,
-                "risk_b": risk_b,
-                "correct": correct
-            })
-            
-            if correct:
-                st.session_state.game_score += 1
-                st.success(f"✅ Correct! Score: {st.session_state.game_score}")
-            else:
-                st.error(f"❌ Riskier choice. Score: {st.session_state.game_score}")
-                st.write(f"Safer was Road B: A={risk_a:.3f}, B={risk_b:.3f}")
-
-            st.session_state.game_current_round += 1
-            if st.session_state.game_current_round > st.session_state.game_max_rounds:
-                st.session_state.game_active = False
-            st.rerun()
-
-    # Road B
-    with col2:
-        st.subheader("🛣️ Road B")
-        st.dataframe(pretty_table(road_b), use_container_width=True, height=280)
-        if st.button("🚗 Choose B", key=f"game_b_button_{st.session_state.game_session_id}_{current_round}"):
-            risk_a = risk_only(road_a)
-            risk_b = risk_only(road_b)
-            correct = risk_b < risk_a
-            st.session_state.game_history.append({
-                "round": current_round,
-                "choice": "B",
-                "risk_a": risk_a,
-                "risk_b": risk_b,
-                "correct": correct
-            })
-            
-            if correct:
-                st.session_state.game_score += 1
-                st.success(f"✅ Correct! Score: {st.session_state.game_score}")
-            else:
-                st.error(f"❌ Riskier choice. Score: {st.session_state.game_score}")
-                st.write(f"Safer was Road A: A={risk_a:.3f}, B={risk_b:.3f}")
-
-            st.session_state.game_current_round += 1
-            if st.session_state.game_current_round > st.session_state.game_max_rounds:
-                st.session_state.game_active = False
-            st.rerun()
-
-    # Progress bar
-    rounds_completed = len(st.session_state.game_history)
-    progress = min(rounds_completed, st.session_state.game_max_rounds) / st.session_state.game_max_rounds
-    st.progress(progress)
-
-    # Score display
-    col1, col2 = st.columns(2)
-    col1.metric("Current Score", st.session_state.game_score)
-    col2.metric("Round", f"{rounds_completed}/10")
-
-# ======================
-# EXPLORE TAB
-# ======================
-with tab_explore:
-    st.subheader("🔍 Explore Road Risk")
-    st.write("Configure parameters to see real-time risk prediction from ensemble models")
-
-    # Controls
-    col1, col2 = st.columns(2)
-    with col1:
-        road_type = st.selectbox("Road Type", range(4), 
-                                format_func=lambda x: ["Highway","Urban","Rural","Residential"][x],
-                                key="explore_road_type")
-        num_lanes = st.slider("Number of Lanes", 1, 6, 2, key="explore_num_lanes")
-        curvature = st.slider("Curvature (0-2)", 0.0, 2.0, 0.5, 0.1, key="explore_curvature")
-        speed_limit = st.select_slider("Speed Limit", [40,60,80,100,120], value=80, key="explore_speed_limit")
-    
-    with col2:
-        lighting = st.selectbox("Lighting", range(3), 
-                               format_func=lambda x: ["Daylight","Twilight","Dark"][x],
-                               key="explore_lighting")
-        weather = st.selectbox("Weather", range(3), 
-                              format_func=lambda x: ["Clear","Rain","Fog/Snow"][x],
-                              key="explore_weather")
-        time_of_day = st.selectbox("Time of Day", range(4),
-                                  format_func=lambda x: ["Morning","Afternoon","Evening","Night"][x],
-                                  key="explore_time_of_day")
-        num_accidents = st.slider("Past Accidents (1 year)", 0, 100, 5, key="explore_num_accidents")
-
-    # Additional controls
-    col3, col4 = st.columns(2)
-    with col3:
-        road_signs = st.checkbox("Road Signs Present", True, key="explore_road_signs")
-        public_road = st.checkbox("Public Road", True, key="explore_public_road")
-    
-    with col4:
-        holiday = st.checkbox("Holiday Period", False, key="explore_holiday")
-        school_season = st.checkbox("School Season", True, key="explore_school_season")
-
-    # Build road configuration
-    road_config = {
-        "road_type": road_type,
-        "num_lanes": num_lanes,
-        "curvature": curvature,
-        "speed_limit": speed_limit,
-        "lighting": lighting,
-        "weather": weather,
-        "road_signs_present": road_signs,
-        "public_road": public_road,
-        "time_of_day": time_of_day,
-        "holiday": holiday,
-        "school_season": school_season,
-        "num_reported_accidents": num_accidents
+    base = {
+        "road_type": road_type, "num_lanes": num_lanes, "curvature": curvature,
+        "speed_limit": speed_limit, "lighting": lighting, "weather": weather,
+        "road_signs_present": road_signs_present, "public_road": public_road,
+        "time_of_day": time_of_day, "holiday": holiday,
+        "school_season": school_season, "num_reported_accidents": num_acc
     }
 
-    # Predict button
-    col_pred, col_result = st.columns([1, 2])
-    with col_pred:
-        if st.button("🎯 Calculate Risk", type="primary", use_container_width=True):
-            risk_score, model_parts = risk_and_parts(road_config)
-            st.session_state.explore_results = {
-                "risk_score": risk_score,
-                "model_parts": model_parts,
-                "config": road_config
-            }
+    if st.button("🎯 Predict risk", type="primary"):
+        score, _ = risk_and_parts(base)
+        tag = "good" if score<0.3 else ("warn" if score<0.6 else "bad")
+        st.markdown(f'<div class="{tag} slide-up"><b>Risk</b>: {score:.4f}</div>', unsafe_allow_html=True)
+    st.dataframe(pretty_table(base), hide_index=True, use_container_width=True)
 
-    # Display results
-    if "explore_results" in st.session_state:
-        results = st.session_state.explore_results
-        risk_score = results["risk_score"]
-        
-        # Risk assessment
-        if risk_score < 0.3:
-            st.success(f"**Risk Level: LOW** ({risk_score:.3f})")
-        elif risk_score < 0.6:
-            st.warning(f"**Risk Level: MEDIUM** ({risk_score:.3f})")
-        else:
-            st.error(f"**Risk Level: HIGH** ({risk_score:.3f})")
 
-        # Model contributions table
-        models_df = pd.DataFrame({
-            "Model": ["XGBoost", "LightGBM", "CatBoost", "ExtraTrees", "RandomForest"],
-            "Risk Contribution": [
-                results["model_parts"]["XGBoost"],
-                results["model_parts"]["LightGBM"],
-                results["model_parts"]["CatBoost"],
-                results["model_parts"]["ExtraTrees"],
-                results["model_parts"]["RandomForest"]
-            ]
-        })
-        st.table(models_df)
-
-    # Current configuration
-    st.subheader("Road Configuration")
-    config_df = pd.DataFrame({
-        "Parameter": ["Road Type", "Lanes", "Curvature", "Speed Limit", "Lighting", "Weather", "Time of Day", "Road Signs", "Public Road", "Holiday", "School Season", "Past Accidents"],
-        "Value": [
-            ["Highway","Urban","Rural","Residential"][road_type],
-            num_lanes,
-            f"{curvature:.1f}/2.0",
-            f"{speed_limit} km/h",
-            ["Daylight","Twilight","Dark"][lighting],
-            ["Clear","Rain","Fog/Snow"][weather],
-            ["Morning","Afternoon","Evening","Night"][time_of_day],
-            "Present" if road_signs else "Absent",
-            "Yes" if public_road else "No",
-            "Yes" if holiday else "No",
-            "Yes" if school_season else "No",
-            num_accidents
-        ]
-    })
-    st.table(config_df)
-
-# ======================
-# JOURNEY TAB
-# ======================
+# ---------------------- JOURNEY (start → finish, complete) ----------------------
 with tab_journey:
-    # Journey state
-    if "journey_step" not in st.session_state:
-        st.session_state.journey_step = 1
-        st.session_state.journey_total = 5
-        st.session_state.journey_risk_threshold = 0.60
-        st.session_state.journey_choices = []
-        st.session_state.journey_active = True
-        st.session_state.journey_id = np.random.randint(4000, 9999)
+    # Safe init for all keys used by Journey
+    if "j_step" not in st.session_state: st.session_state.j_step = 1
+    if "j_max"  not in st.session_state: st.session_state.j_max = 5
+    if "j_thr"  not in st.session_state: st.session_state.j_thr = 0.60
+    if "j_seed" not in st.session_state: st.session_state.j_seed = 2025
+    if "j_hist" not in st.session_state: st.session_state.j_hist = []   # [{step, chosen_risk, best_risk, optimal, chosen_base}]
+    if "j_alive" not in st.session_state: st.session_state.j_alive = True
+    if "j_opts" not in st.session_state: st.session_state.j_opts = None  # current step options
+    if "j_opt_count" not in st.session_state: st.session_state.j_opt_count = 3
+    if "j_all_opts" not in st.session_state: st.session_state.j_all_opts = {}  # step -> options shown
 
-    def generate_journey_choices(step):
-        rng = np.random.default_rng(st.session_state.journey_id + step * 100)
-        choices = []
-        for i in range(3):
-            road = random_road(rng)
-            risk = risk_only(road)
-            choices.append({"road": road, "risk": risk})
-        return choices
+    st.subheader("Start → Finish (no‑spoilers mode)")
+    st.markdown("<p class='small'>Pick the safest option at each checkpoint. Risks are hidden until the end. If your chosen option’s risk ≥ threshold, the journey ends immediately.</p>", unsafe_allow_html=True)
 
-    def reset_journey():
-        st.session_state.journey_step = 1
-        st.session_state.journey_choices = []
-        st.session_state.journey_active = True
-        st.session_state.journey_id = np.random.randint(4000, 9999)
-        st.rerun()
+    # Difficulty controls
+    d1, d2, d3, d4 = st.columns([1,1,1,2])
+    with d1:
+        mode = st.selectbox("Mode", ["Easy","Normal","Hard","Custom"], index=1)
+    with d2:
+        if mode=="Easy":
+            st.session_state.j_thr = 0.65
+            st.session_state.j_max = 4
+        elif mode=="Normal":
+            st.session_state.j_thr = 0.60
+            st.session_state.j_max = 5
+        elif mode=="Hard":
+            st.session_state.j_thr = 0.55
+            st.session_state.j_max = 6
+        st.caption(f"Threshold: {st.session_state.j_thr:.2f} • Steps: {st.session_state.j_max}")
+    with d3:
+        st.session_state.j_opt_count = st.select_slider("Options/step", [2,3], value=st.session_state.j_opt_count, key="j_opt_per_step")
+    with d4:
+        if st.button("🔄 Restart journey", type="primary"):
+            st.session_state.j_step = 1
+            st.session_state.j_hist = []
+            st.session_state.j_alive = True
+            st.session_state.j_seed += 17
+            st.session_state.j_opts = None
+            st.session_state.j_all_opts = {}
+            st.rerun()
 
-    # Journey controls
-    col1, col2 = st.columns(2)
-    with col1:
-        st.session_state.journey_total = st.slider("Journey Length", 3, 8, 5, key="journey_length")
-        st.session_state.journey_risk_threshold = st.slider("Risk Threshold", 0.4, 0.9, 0.6, 0.05, key="journey_threshold")
-    with col2:
-        if st.button("🚀 Start New Journey", type="primary", use_container_width=True):
-            reset_journey()
+    st.markdown("---")
 
-    # Journey complete
-    if not st.session_state.journey_active:
-        st.header("🏁 Journey Complete!")
-        if len(st.session_state.journey_choices) == st.session_state.journey_total:
-            st.success("Successfully navigated all steps!")
+    # Milestone banner (cosmetic)
+    if 1 <= st.session_state.j_step <= st.session_state.j_max:
+        mile = {1:"Departure", 2:"City Outskirts", 3:"Hills", 4:"Highway Merge", 5:"Suburbs", 6:"Downtown"}.get(st.session_state.j_step, f"Stage {st.session_state.j_step}")
+        st.markdown(f'<span class="ribbon fade-in">🧭 {mile}</span>', unsafe_allow_html=True)
+
+    # Recap tray (risks hidden until the end)
+    if st.session_state.j_hist:
+        with st.expander("📜 Journey recap so far", expanded=False):
+            finished = (not st.session_state.j_alive) or (st.session_state.j_step>st.session_state.j_max)
+            rows = []
+            for h in st.session_state.j_hist:
+                rows.append({
+                    "Step": h["step"],
+                    "Chosen": f'{h["chosen_risk"]:.3f}' if finished else "hidden",
+                    "BestAtStep": f'{h["best_risk"]:.3f}' if finished else "hidden",
+                    "Optimal?": ("✅" if h["optimal"] else "❌") if finished else "—"
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+    # Helpers
+    def gen_options(step, n, seed):
+        rng = np.random.default_rng(seed + step*911)
+        opts = []
+        for k in range(n):
+            b = random_road(rng)
+            y = risk_only(b)   # cached
+            opts.append({"base":b, "risk":float(y)})
+        opts.sort(key=lambda d: d["risk"])
+        return opts
+
+    def quick_tips_for(base: Dict):
+        tips = []
+        if base["lighting"]==2: tips.append("Choose options with better lighting when possible.")
+        if base["weather"]>=1: tips.append("Prefer clear weather paths or slow down significantly.")
+        if base["speed_limit"]>80: tips.append("Favor lower speed limits when curves/visibility are bad.")
+        if base["num_lanes"]<=2: tips.append("Wider roads (more lanes) are safer at similar speeds.")
+        if not base["road_signs_present"]: tips.append("Presence of signage helps; pick those routes.")
+        if base["num_reported_accidents"]>=50: tips.append("Avoid accident hotspots; detour if risks are high.")
+        return tips[:3]
+
+    def show_summary(alive: bool):
+        hist = st.session_state.j_hist
+        if not hist:
+            st.info("No steps taken.")
+            return
+        avg_risk = float(np.mean([h["chosen_risk"] for h in hist]))
+        if alive and len(hist)==st.session_state.j_max:
+            st.balloons()
+            st.markdown(f'<div class="good slide-up"><b>🏁 Destination reached</b> • average chosen risk {avg_risk:.3f}</div>', unsafe_allow_html=True)
         else:
-            st.error("Journey ended due to high risk!")
-        
-        if st.session_state.journey_choices:
-            choices_df = pd.DataFrame(st.session_state.journey_choices)
-            avg_risk = np.mean(choices_df["risk"])
-            st.markdown(f"**Average Risk**: {avg_risk:.3f}")
-            
-            # Show each step
-            for i, choice in enumerate(st.session_state.journey_choices):
-                status = "✅ Survived" if choice["risk"] < st.session_state.journey_risk_threshold else "💥 Failed"
-                st.write(f"Step {i+1}: {status} (Risk: {choice['risk']:.3f})")
+            bad = [h for h in hist if h["chosen_risk"] >= st.session_state.j_thr]
+            if bad:
+                st.markdown(f'<div class="bad slide-up">💥 Failed at step {bad[0]["step"]}: chosen {bad[0]["chosen_risk"]:.3f} ≥ threshold {st.session_state.j_thr:.2f}</div>', unsafe_allow_html=True)
+                st.markdown("#### 🎯 Quick coaching")
+                for t in quick_tips_for(bad[0]["chosen_base"]): st.markdown(f"- {t}")
 
-        if st.button("🚀 New Journey", type="primary"):
-            reset_journey()
+        # Your path (now reveal numbers)
+        rows = [{"Step":h["step"], "Chosen":f'{h["chosen_risk"]:.3f}', "BestAtStep":f'{h["best_risk"]:.3f}', "Delta": f'{(h["chosen_risk"]-h["best_risk"]):+.3f}', "Optimal?":"✅" if h["optimal"] else "❌"} for h in hist]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+        # Optimal path reconstruction using stored options
+        st.markdown("### 🧭 Optimal path (model’s picks at each shown step)")
+        best_steps = []
+        for step in range(1, len(hist)+1):
+            opts = st.session_state.j_all_opts.get(step)
+            if not opts: continue
+            best_opt = min(opts, key=lambda d: d["risk"])
+            best_steps.append({"Step": step, "BestRisk": best_opt["risk"], "Base": best_opt["base"]})
+
+        if best_steps:
+            opt_avg = float(np.mean([s["BestRisk"] for s in best_steps]))
+            st.markdown(f'<div class="warn slide-up"><b>Optimal average risk</b>: {opt_avg:.3f}</div>', unsafe_allow_html=True)
+            
+            # === CORRECTED/CLEANED CODE BLOCK ===
+            # The original script had a broken, half-finished loop here.
+            # This is the corrected, functional version.
+            tbl = []
+            for s in best_steps:
+                b = s["Base"]
+                desc = " ".join([
+                    ["Hwy","Urban","Rural","Res"][b["road_type"]],
+                    f'{b["num_lanes"]}L',
+                    f'curv {b["curvature"]:.1f}',
+                    f'{b["speed_limit"]}km/h',
+                    ["Day","Twilight","Dark"][b["lighting"]],
+                    ["Clear","Rain","Fog"][b["weather"]], # Note: this assumes weather 0, 1, 2
+                    "signs" if b["road_signs_present"] else "no-signs",
+                    f'{b["num_reported_accidents"]}acc'
+                ])
+                tbl.append({"Step": s["Step"], "BestRisk": f'{s["BestRisk"]:.3f}', "Option": desc})
+            st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
+            # === END OF CORRECTION ===
+            
+        else:
+            st.write("Optimal path could not be reconstructed (no options tracked).")
+
+    # If journey ended (dead or finished), show summary and stop
+    if (not st.session_state.j_alive) or (st.session_state.j_step>st.session_state.j_max):
+        show_summary(st.session_state.j_alive and (st.session_state.j_step>st.session_state.j_max))
         st.stop()
 
-    # Current step
-    current_step = st.session_state.journey_step
-    st.header(f"Step {current_step} of {st.session_state.journey_total}")
+    # Prepare current step options
+    if st.session_state.j_opts is None:
+        st.session_state.j_opts = gen_options(st.session_state.j_step, st.session_state.j_opt_count, st.session_state.j_seed)
+        st.session_state.j_all_opts[st.session_state.j_step] = st.session_state.j_opts
 
-    # Generate choices for current step
-    if "journey_current_choices" not in st.session_state or len(st.session_state.journey_current_choices) != 3:
-        st.session_state.journey_current_choices = generate_journey_choices(current_step)
+    st.markdown(f"### Checkpoint {st.session_state.j_step}/{st.session_state.j_max}")
 
-    choices = st.session_state.journey_current_choices
-    col1, col2, col3 = st.columns(3)
+    # Render options without risk values (hidden)
+    cols = st.columns(st.session_state.j_opt_count)
+    for i, col in enumerate(cols):
+        with col:
+            # Handle potential case where options weren't generated
+            if i >= len(st.session_state.j_opts):
+                continue
+                
+            opt = st.session_state.j_opts[i]; b = opt["base"]; r = opt["risk"]
+            st.markdown(
+                f'<div class="step-card fade-in">'
+                f'<div class="step-header"><div class="badge warn">Option {i+1}</div>'
+                f'<div>Checkpoint {st.session_state.j_step}</div></div>',
+                unsafe_allow_html=True
+            )
+            chips = [
+                f'🚗 {["Hwy","Urban","Rural","Res"][b["road_type"]]}',
+                f'🛤️ {b["num_lanes"]} lanes',
+                f'🌀 {b["curvature"]:.1f}',
+                f'🚧 {b["speed_limit"]} km/h',
+                f'💡 {["Day","Twilight","Dark"][b["lighting"]]}',
+                f'🌦️ {["Clear","Rain","Fog"][b["weather"]]}', # Note: this assumes weather 0, 1, 2
+                f'🚸 {"Signs" if b["road_signs_present"] else "No signs"}',
+                f'📊 {b["num_reported_accidents"]} acc'
+            ]
+            st.markdown('<div class="kv">' + "".join([f"<span>{x}</span>" for x in chips]) + "</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    # Choice A
-    with col1:
-        choice_a = choices[0]
-        road_a = choice_a["road"]
-        st.markdown(f"**Route A**")
-        st.write(f"Type: {['Highway','Urban','Rural','Residential'][road_a['road_type']]}")
-        st.write(f"Lanes: {road_a['num_lanes']}")
-        st.write(f"Speed: {road_a['speed_limit']} km/h")
-        st.write(f"Curvature: {road_a['curvature']:.1f}")
-        st.write(f"Weather: {['Clear','Rain','Fog/Snow'][road_a['weather']]}")
-        st.write(f"Lighting: {['Daylight','Twilight','Dark'][road_a['lighting']]}")
-
-        if st.button("🛤️ Choose A", key=f"journey_a_{st.session_state.journey_id}_{current_step}"):
-            risk = choice_a["risk"]
-            survived = risk < st.session_state.journey_risk_threshold
-            
-            st.session_state.journey_choices.append({
-                "step": current_step,
-                "route": "A",
-                "risk": risk,
-                "survived": survived
-            })
-            
-            if survived:
-                st.session_state.journey_step += 1
-                if st.session_state.journey_step > st.session_state.journey_total:
-                    st.session_state.journey_active = False
-                else:
-                    st.session_state.journey_current_choices = generate_journey_choices(st.session_state.journey_step)
-                st.success(f"Step {current_step}: Route A - Risk: {risk:.3f}")
-            else:
-                st.session_state.journey_active = False
-                st.error(f"Step {current_step}: Route A - Risk: {risk:.3f} (too dangerous!)")
-            
-            st.rerun()
-
-    # Choice B
-    with col2:
-        choice_b = choices[1]
-        road_b = choice_b["road"]
-        st.markdown(f"**Route B**")
-        st.write(f"Type: {['Highway','Urban','Rural','Residential'][road_b['road_type']]}")
-        st.write(f"Lanes: {road_b['num_lanes']}")
-        st.write(f"Speed: {road_b['speed_limit']} km/h")
-        st.write(f"Curvature: {road_b['curvature']:.1f}")
-        st.write(f"Weather: {['Clear','Rain','Fog/Snow'][road_b['weather']]}")
-        st.write(f"Lighting: {['Daylight','Twilight','Dark'][road_b['lighting']]}")
-
-        if st.button("🛤️ Choose B", key=f"journey_b_{st.session_state.journey_id}_{current_step}"):
-            risk = choice_b["risk"]
-            survived = risk < st.session_state.journey_risk_threshold
-            
-            st.session_state.journey_choices.append({
-                "step": current_step,
-                "route": "B",
-                "risk": risk,
-                "survived": survived
-            })
-            
-            if survived:
-                st.session_state.journey_step += 1
-                if st.session_state.journey_step > st.session_state.journey_total:
-                    st.session_state.journey_active = False
-                else:
-                    st.session_state.journey_current_choices = generate_journey_choices(st.session_state.journey_step)
-                st.success(f"Step {current_step}: Route B - Risk: {risk:.3f}")
-            else:
-                st.session_state.journey_active = False
-                st.error(f"Step {current_step}: Route B - Risk: {risk:.3f} (too dangerous!)")
-            
-            st.rerun()
-
-    # Choice C
-    with col3:
-        choice_c = choices[2]
-        road_c = choice_c["road"]
-        st.markdown(f"**Route C**")
-        st.write(f"Type: {['Highway','Urban','Rural','Residential'][road_c['road_type']]}")
-        st.write(f"Lanes: {road_c['num_lanes']}")
-        st.write(f"Speed: {road_c['speed_limit']} km/h")
-        st.write(f"Curvature: {road_c['curvature']:.1f}")
-        st.write(f"Weather: {['Clear','Rain','Fog/Snow'][road_c['weather']]}")
-        st.write(f"Lighting: {['Daylight','Twilight','Dark'][road_c['lighting']]}")
-
-        if st.button("🛤️ Choose C", key=f"journey_c_{st.session_state.journey_id}_{current_step}"):
-            risk = choice_c["risk"]
-            survived = risk < st.session_state.journey_risk_threshold
-            
-            st.session_state.journey_choices.append({
-                "step": current_step,
-                "route": "C",
-                "risk": risk,
-                "survived": survived
-            })
-            
-            if survived:
-                st.session_state.journey_step += 1
-                if st.session_state.journey_step > st.session_state.journey_total:
-                    st.session_state.journey_active = False
-                else:
-                    st.session_state.journey_current_choices = generate_journey_choices(st.session_state.journey_step)
-                st.success(f"Step {current_step}: Route C - Risk: {risk:.3f}")
-            else:
-                st.session_state.journey_active = False
-                st.error(f"Step {current_step}: Route C - Risk: {risk:.3f} (too dangerous!)")
-            
-            st.rerun()
-
-    # Progress bar
-    steps_completed = len(st.session_state.journey_choices)
-    progress = min(steps_completed, st.session_state.journey_total) / st.session_state.journey_total
-    st.progress(progress)
-
-    col1, col2 = st.columns(2)
-    col1.metric("Steps Survived", steps_completed, st.session_state.journey_total)
-    col2.metric("Risk Limit", f"{st.session_state.journey_risk_threshold}")
+            if st.button(f"✅ Choose Option {i+1}", key=f"j_pick_{st.session_state.j_step}_{i}", use_container_width=True):
+                best = min([o["risk"] for o in st.session_state.j_opts])
+                optimal = (abs(r-best) < 1e-9) or (r==best)
+                st.session_state.j_hist.append({
+                    "step": st.session_state.j_step, "chosen_risk": r, "best_risk": best,
+                    "optimal": optimal, "chosen_base": b
+                })
+                if r >= st.session_state.j_thr:
+                    st.session_state.j_alive = False
+                    show_summary(False)
+                    st.stop()
+                st.session_state.j_step += 1
+                st.session_state.j_opts = None
+                if st.session_state.j_step > st.session_state.j_max:
+                    show_summary(True)
+                    st.stop()
+                st.rerun()

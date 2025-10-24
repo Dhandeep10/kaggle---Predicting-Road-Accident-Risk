@@ -1,5 +1,12 @@
 import os
 import streamlit as st
+
+st.set_page_config(
+    page_title="Road Safety App", 
+    page_icon="🛣️", 
+    layout="wide"
+)
+
 print("=== Available files ===")
 for f in os.listdir('.'):
     if os.path.isfile(f):

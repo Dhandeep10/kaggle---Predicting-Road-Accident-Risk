@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 print("=== Available files ===")
 for f in os.listdir('.'):
     if os.path.isfile(f):
@@ -16,7 +17,7 @@ else:
     st.success("All models found")
 
 
-import streamlit as st
+
 import numpy as np
 import pandas as pd
 import joblib

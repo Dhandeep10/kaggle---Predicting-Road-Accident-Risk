@@ -385,7 +385,7 @@ with tab_game:
             else:
                 rng = np.random.default_rng(st.session_state.g_round + 999)
                 st.session_state.g_pair = (random_road(rng), random_road(rng))
-            st.rerun()
+                st.rerun()
 
     with colB:
         st.markdown('<span class="badge warn">Road B</span>', unsafe_allow_html=True)
@@ -406,7 +406,7 @@ with tab_game:
             else:
                 rng = np.random.default_rng(st.session_state.g_round + 999)
                 st.session_state.g_pair = (random_road(rng), random_road(rng))
-            st.rerun()
+                st.rerun()
 
     # Per-round feedback
     if st.session_state.g_last and not st.session_state.g_finished:
